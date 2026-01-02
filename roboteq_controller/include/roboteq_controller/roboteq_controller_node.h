@@ -6,7 +6,6 @@
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/algorithm/string/classification.hpp>
 
-
 #include <iostream>
 #include <sstream>
 #include <typeinfo>
@@ -24,10 +23,10 @@
 #include "std_msgs/msg/empty.hpp"
 #include "std_msgs/msg/float32.hpp"
 
-#include "roboteq_interfaces/msg/channel_values.hpp"
-
 using namespace std::chrono_literals;
 using std::placeholders::_1;
+
+#define DEG_2_RAD 57.2958
 
 class RoboteqDriver : public rclcpp::Node
 {
@@ -51,11 +50,12 @@ private:
 	rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr 		vel_sub_;
 	rclcpp::Publisher<std_msgs::msg::String>::SharedPtr 		serial_read_pub_;
 	
-	std::vector<rclcpp::Publisher<roboteq_interfaces::msg::ChannelValues>::SharedPtr>  query_pub_;
+	std::vector<rclcpp::Publisher<std_msgs::msg::String>::SharedPtr>  query_pub_;
 
 	rclcpp::TimerBase::SharedPtr 				timer_pub_;
 
 	double 					rpm_scale_;
+	double 					max_vel_;
 	std::string 			vel_topic_;
 
 	// queries

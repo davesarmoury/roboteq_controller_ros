@@ -13,6 +13,7 @@ def generate_launch_description():
         
     node=Node(
         package = 'roboteq_controller',
+        namespace = 'turtlesim1',
         name = 'roboteq_controller_node',
         executable = 'roboteq_controller_node',
         parameters = [config]
