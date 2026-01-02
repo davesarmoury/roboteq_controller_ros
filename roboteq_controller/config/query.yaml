@@ -1,22 +1,15 @@
 roboteq_controller_node:
   ros__parameters:
-    serial_port: "/dev/ttyACM0" # Udev rule to make a virtual port that's associated to specific hw
+    serial_port: "/dev/ttyUSB0" # Udev rule to make a virtual port that's associated to specific hw
     baudrate: 115200
-    cmd_vel_topic: "/cmd_vel"
+    vel_topic: "/vel"
 
-    closed_loop: true
-
-    # For differential drive control (dual channel controller)
-    diff_drive_mode: true
-    wheel_circumference: 0.6594 # [m]
-    track_width: .6223 # [m]
     max_rpm: 100.0 # [rpm]
-    encoder_resolution: 1024
 
     # For querying data from the motor controller
     frequency: 50   #higher frequency (value is in ms)
     query:
-      motor_amps : ?A 
+      motor_amps : ?A
       motor_command : ?M
       # hall_count : ?Cb
       # hall_speed : ?BS
@@ -33,8 +26,8 @@ roboteq_controller_node:
       # feedback2 : ?rmp 
       # battery_amps2 : ?PHA
       # power2 : ?sns          
-      # fault_flag2 : ?S  
-      # status_flag : ?FS
+      fault_flag2 : ?S  
+      status_flag : ?FS
       # firmware_id : ?FID  
-      encoder_count : ?C
-      encoder_speed : ?S  
+      # encoder_count : ?C
+      # encoder_speed : ?S  
