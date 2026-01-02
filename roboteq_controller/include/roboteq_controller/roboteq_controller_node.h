@@ -56,7 +56,6 @@ private:
 	rclcpp::TimerBase::SharedPtr 				timer_pub_;
 
 	double 					rpm_scale_;
-
 	std::string 			vel_topic_;
 
 	// queries
@@ -71,7 +70,6 @@ private:
 	void cmdSetup();
 	void velCallback(const std_msgs::msg::Float32 &);
 
-	void initializeServices();
 	void run();
 
 	void queryCallback();

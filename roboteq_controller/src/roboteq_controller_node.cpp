@@ -100,7 +100,6 @@ void RoboteqDriver::cmdSetup(){
 
 
 void RoboteqDriver::run(){
-	// initializeServices();
 	std::stringstream ss0, ss1;
 	ss0 << "^echof 1_";
 	ss1 << "# c_/\"DH?\",\"?\"";

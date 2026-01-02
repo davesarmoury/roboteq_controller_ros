@@ -3,8 +3,7 @@ roboteq_controller_node:
     serial_port: "/dev/ttyUSB0" # Udev rule to make a virtual port that's associated to specific hw
     baudrate: 115200
     vel_topic: "/vel"
-
-    max_rpm: 100.0 # [rpm]
+    rpm_scale: 25.0 # gear ratio and direction
 
     # For querying data from the motor controller
     frequency: 50   #higher frequency (value is in ms)
