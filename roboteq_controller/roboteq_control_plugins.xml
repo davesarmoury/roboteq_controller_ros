@@ -1,0 +1,9 @@
+<library path="roboteq_control">
+  <class name="roboteq_control/PaddleWheelHardware"
+         type="roboteq_control::PaddleWheelHardware"
+         base_class_type="hardware_interface::ActuatorInterface">
+    <description>
+      Roboteq Interface
+    </description>
+  </class>
+</library>

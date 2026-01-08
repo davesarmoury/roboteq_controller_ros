@@ -1,16 +1,6 @@
 cmake_minimum_required(VERSION 3.5)
 project(roboteq_controller)
 
-# Default to C99
-if(NOT CMAKE_C_STANDARD)
-  set(CMAKE_C_STANDARD 99)
-endif()
-
-# Default to C++14
-if(NOT CMAKE_CXX_STANDARD)
-  set(CMAKE_CXX_STANDARD 14)
-endif()
-
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
@@ -22,14 +12,49 @@ find_package(std_msgs REQUIRED)
 find_package(rclcpp_components REQUIRED)
 find_package(rcutils REQUIRED)
 find_package(serial REQUIRED)
+find_package(rclcpp_lifecycle REQUIRED)
+find_package(hardware_interface REQUIRED)
+find_package(pluginlib REQUIRED)
 
 include_directories(include)
-include_directories(/tmp/usr/local/include/)
 
-set(node_plugins "")
+add_library(
+  roboteq_control
+  SHARED
+  src/roboteq_controller_node.cpp
+)
 
-add_executable(roboteq_controller_node src/roboteq_controller_node.cpp)
-ament_target_dependencies(roboteq_controller_node rclcpp std_msgs serial)
+target_compile_features(roboteq_control PUBLIC cxx_std_17)
+target_include_directories(roboteq_control PUBLIC
+  $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include/roboteq_control>
+)
+
+ament_target_dependencies(
+  roboteq_control PUBLIC
+  rclcpp
+  std_msgs
+  rclcpp_components
+  rcutils
+  serial
+  rclcpp_lifecycle
+  hardware_interface
+  pluginlib
+)
+
+pluginlib_export_plugin_description_file(hardware_interface roboteq_control_plugins.xml)
+
+install(
+  DIRECTORY include/
+  DESTINATION include/roboteq_control
+)
+
+install(TARGETS roboteq_control
+  EXPORT export_roboteq_control
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin
+)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
@@ -42,14 +67,22 @@ if(BUILD_TESTING)
   ament_lint_auto_find_test_dependencies()
 endif()
 
-ament_package()
-
-install(TARGETS
-  roboteq_controller_node
-  DESTINATION lib/${PROJECT_NAME})
+ament_export_targets(export_roboteq_control HAS_LIBRARY_TARGET)
+ament_export_dependencies(
+  rclcpp
+  std_msgs
+  rclcpp_components
+  rcutils
+  serial
+  rclcpp_lifecycle
+  hardware_interface
+  pluginlib
+)
 
 install(DIRECTORY
   launch
   config
-  DESTINATION share/${PROJECT_NAME}
+  DESTINATION share/${PROJECT_NAME}/
 )
+
+ament_package()

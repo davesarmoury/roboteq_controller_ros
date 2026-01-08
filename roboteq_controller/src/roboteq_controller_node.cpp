@@ -3,60 +3,44 @@
 // static const std::string tag {"[RoboteQ] "};
 static const std::string tag {""};
 
-void RoboteqDriver::declare(){
-	declare_parameter<std::string>("serial_port", "dev/ttyUSB0");
-	declare_parameter("baudrate", 115200);
-	declare_parameter("rpm_scale", 25.0);
-	declare_parameter("max_vel", 3500.0);
-	declare_parameter<int>("frequency", 0);
-
-	declare_parameter<std::string>("vel_topic", "/vel");
-}
-
-void RoboteqDriver::init(){
-	RCLCPP_INFO(get_logger(), "Creating");
-	get_parameter("frequency", frequency_);
-
-	get_parameter("serial_port", serial_port_);
-	get_parameter("baudrate", baudrate_);
-	get_parameter("rpm_scale", rpm_scale_);
-	get_parameter("max_vel", max_vel_);
-	get_parameter("vel_topic", vel_topic_);
+namespace roboteq_control
+{
+hardware_interface::CallbackReturn RoboteqHardware::on_configure(const rclcpp_lifecycle::State & previous_state){
+	frequency_ = std::stod(info_.hardware_parameters["frequency"]);
+	serial_port_ = info_.hardware_parameters["serial_port"];
+	baudrate_ = std::stod(info_.hardware_parameters["baudrate"]);
+	gear_ratio_ = std::stof(info_.hardware_parameters["gear_ratio"]);
+	max_vel_ = std::stof(info_.hardware_parameters["max_vel"]);
 
 	if (frequency_ <= 0.0){
-		RCLCPP_ERROR_STREAM(this->get_logger(),tag << "Inproper configuration! \'frequency\' need to be greater than zero.");
+		RCLCPP_ERROR_STREAM(get_logger(),tag << "Inproper configuration! \'frequency\' need to be greater than zero.");
 	}
 
-	auto param_interface = this->get_node_parameters_interface();
-	std::map<std::string, rclcpp::ParameterValue> params = param_interface->get_parameter_overrides();
+	queries_["motor_amps"] = "?A";
+	queries_["motor_command"] = "?M";
+	queries_["fault_flag2"] = "?FF";
+	queries_["status_flag"] = "?FS";
+	queries_["encoder_speed"] = "?S";
 
-	RCLCPP_INFO_STREAM(this->get_logger(), tag << "queries:" );
-
-	for (auto iter = params.begin(); iter != params.end(); iter++){
-		std::size_t pos = iter->first.find("query");
-		if (pos != std::string::npos && 
-			iter->second.get_type() == rclcpp::ParameterType::PARAMETER_STRING){
-  			std::string topic = iter->first.substr (pos+ 6);    
-			auto query = iter->second.to_value_msg().string_value;
-			
-			queries_[topic] =  query;
-			RCLCPP_INFO(this->get_logger(), "%15s : %s",  topic.c_str(), query.c_str() );
-		}
-	}
+	return hardware_interface::CallbackReturn::SUCCESS;
 }
 
-RoboteqDriver::RoboteqDriver(const rclcpp::NodeOptions &options): Node("roboteq_controller", options),
-	rpm_scale_(1.0),
-	frequency_(0),
-	serial_port_("dev/ttyUSB0"),
-	baudrate_(115200){
-	
-	declare();
-	init();
+hardware_interface::CallbackReturn RoboteqHardware::on_init(const hardware_interface::HardwareInfo & info)
+{
+  if (
+    hardware_interface::ActuatorInterface::on_init(info) !=
+    hardware_interface::CallbackReturn::SUCCESS)
+  {
+    return hardware_interface::CallbackReturn::ERROR;
+  }
 
-	vel_sub_ = create_subscription<std_msgs::msg::Float32>(
-										vel_topic_, rclcpp::SystemDefaultsQoS(),
-										std::bind(&RoboteqDriver::velCallback, this, std::placeholders::_1));
+	logger_ = std::make_shared<rclcpp::Logger>(
+	rclcpp::get_logger("controller_manager.resource_manager.hardware_component.actuator.RoboteqController"));
+	clock_ = std::make_shared<rclcpp::Clock>(rclcpp::Clock());
+
+	rclcpp::NodeOptions options;
+	options.arguments({ "--ros-args", "-r", "__node:=RoboteqControllerInternal"});
+	node_ = rclcpp::Node::make_shared("_", options);
 
 	// Initiate communication to serial port
 	try{
@@ -67,92 +51,88 @@ RoboteqDriver::RoboteqDriver(const rclcpp::NodeOptions &options): Node("roboteq_
 		ser_.open();
 	}
 	catch (serial::IOException &e){
-		RCLCPP_ERROR_STREAM(this->get_logger(),tag << "Unable to open port " << serial_port_);
-		rclcpp::shutdown();
+		RCLCPP_ERROR_STREAM(get_logger(),tag << "Unable to open port " << serial_port_);
+	    return hardware_interface::CallbackReturn::ERROR;
 	}
 
 	if (ser_.isOpen()){
-		RCLCPP_INFO_STREAM(this->get_logger(),tag << "Serial Port " << serial_port_ << " initialized");
+		RCLCPP_INFO_STREAM(get_logger(),tag << "Serial Port " << serial_port_ << " initialized");
+
+		serial_read_pub_ = node_->create_publisher<std_msgs::msg::String>("read", rclcpp::SystemDefaultsQoS());		
+
+		ser_.write("!G 0\r");
+		ser_.write("!S 0\r");
+		ser_.flush();
+
+		// enable watchdog timer (1000 ms) to stop if no connection
+		ser_.write("^RWD 1000\r");
+
+		// closed-loop speed mode
+		ser_.write("^MMOD 1\r");
+		ser_.flush();
+
+		std::stringstream ss0, ss1;
+		ss0 << "^echof 1_";
+		ss1 << "# c_/\"DH?\",\"?\"";
+
+		for (auto item : queries_){
+			RCLCPP_INFO_STREAM(get_logger(),tag << "Publish topic: " << item.first);
+			query_pub_.push_back(node_->create_publisher<std_msgs::msg::String>(item.first, 100));
+
+			std::string cmd = item.second;
+			ss1 << cmd << "_";
+		}
+
+		ss1 << "# " << frequency_ << "_";
+		
+		ser_.write(ss0.str());
+		ser_.write(ss1.str());
+		ser_.flush();
+
+		std::chrono::duration<int, std::milli> dt (1000/frequency_);
+		timer_pub_ = node_->create_wall_timer(dt, std::bind(&RoboteqHardware::queryCallback, this) );
+
+		return hardware_interface::CallbackReturn::SUCCESS;
 	}
 	else{
-		RCLCPP_INFO_STREAM(this->get_logger(),tag << "Serial Port " << serial_port_ << " is not open");
-		rclcpp::shutdown();
+		RCLCPP_INFO_STREAM(get_logger(),tag << "Serial Port " << serial_port_ << " is not open");
+	    return hardware_interface::CallbackReturn::ERROR;
 	}
-
-	cmdSetup();
-
-	run();
 }
 
-
-void RoboteqDriver::cmdSetup(){
-	// stop motors
-	ser_.write("!G 0\r");
-	ser_.write("!S 0\r");
-	ser_.flush();
-
-	// // disable echo
-	// ser.write("^ECHOF 1\r");
-	// ser.flush();
-
-	// enable watchdog timer (1000 ms) to stop if no connection
-	ser_.write("^RWD 1000\r");
-
-	// closed-loop speed mode
-	ser_.write("^MMOD 1\r");
-	ser_.flush();
+float_t RoboteqHardware::radps_2_rpm(float radps){
+	return radps * 9.5493; 
 }
 
-
-void RoboteqDriver::run(){
-	std::stringstream ss0, ss1;
-	ss0 << "^echof 1_";
-	ss1 << "# c_/\"DH?\",\"?\"";
-
-	for (auto item : queries_){
-		RCLCPP_INFO_STREAM(this->get_logger(),tag << "Publish topic: " << item.first);
-		query_pub_.push_back(create_publisher<std_msgs::msg::String>(item.first, 100));
-
-		std::string cmd = item.second;
-		ss1 << cmd << "_";
-	}
-
-	ss1 << "# " << frequency_ << "_";
-	
-	ser_.write(ss0.str());
-	ser_.write(ss1.str());
-	ser_.flush();
-	
-
-    serial_read_pub_ = create_publisher<std_msgs::msg::String>("read", rclcpp::SystemDefaultsQoS());
-
-	std::chrono::duration<int, std::milli> dt (1000/frequency_);
-	timer_pub_ = create_wall_timer(dt, std::bind(&RoboteqDriver::queryCallback, this) );
+float_t RoboteqHardware::rpm_2_radps(float rpm){
+	return rpm / 9.5493; 
 }
 
-void RoboteqDriver::velCallback(const std_msgs::msg::Float32 &msg){
+hardware_interface::return_type RoboteqHardware::write(const rclcpp::Time & time, const rclcpp::Duration & period){
 	std::stringstream cmd_str;
-	int vel = static_cast<int>(msg.data * rpm_scale_ / max_vel_ * 1000 * DEG_2_RAD);
+
+	int vel = static_cast<int>(radps_2_rpm(hw_commands_[0]) * gear_ratio_ / max_vel_ * 1000); 
 
 	cmd_str << "!G " << vel << "_"; // Not sure why closed-loop speed doesn't work
 
 	ser_.write(cmd_str.str());
 	ser_.flush();
-	// RCLCPP_INFO_STREAM(this->get_logger(),cmd_str.str());
+
+	return hardware_interface::return_type::OK;
 }
 
-void RoboteqDriver::queryCallback(){
-	auto current_time = this->now();
+hardware_interface::return_type RoboteqHardware::read(const rclcpp::Time & time, const rclcpp::Duration & period){
+	std::lock_guard<std::mutex> lock(locker);
+	hw_states_[0] = last_vel_;
+
+	return hardware_interface::return_type::OK;
+}
+
+void RoboteqHardware::queryCallback(){
 	if (ser_.available()){
 		std_msgs::msg::String result;
 
-		std::lock_guard<std::mutex> lock(locker);
-
 		result.data = ser_.read(ser_.available());
-
-		// std::lock_guard<std::mutex> unlock(locker);
-
-
 		serial_read_pub_->publish(result);
 		
 		boost::replace_all(result.data, "\r", "");
@@ -164,7 +144,7 @@ void RoboteqDriver::queryCallback(){
 			boost::split(fields, result.data, boost::algorithm::is_any_of("="));
 			if (fields.size() < 2){
 
-				RCLCPP_ERROR_STREAM(this->get_logger(),tag << "Empty data:{" << result.data << "}");
+				RCLCPP_ERROR_STREAM(get_logger(),tag << "Empty data:{" << result.data << "}");
 			}
 
 			else if (fields.size() == 2){
@@ -175,6 +155,11 @@ void RoboteqDriver::queryCallback(){
 				for (auto item : queries_){
 					if(item.second == "?" + fields[0]){
 						query_pub_[i]->publish(q_msg);
+						
+						if(fields[0] == "S"){
+							std::lock_guard<std::mutex> lock(locker);
+							last_vel_ = rpm_2_radps(std::stod(fields[1]));
+						}
 						break;
 					}
 					i++;
@@ -182,18 +167,13 @@ void RoboteqDriver::queryCallback(){
 			}
 
 			else{
-				RCLCPP_WARN_STREAM(this->get_logger(),tag << "Unknown:{" << result.data << "}");
+				RCLCPP_WARN_STREAM(get_logger(),tag << "Unknown:{" << result.data << "}");
 			}
 		}
 	}
 }
-
-
-int main(int argc, char * argv[])
-{
-  rclcpp::init(argc, argv);
-  rclcpp::spin(std::make_shared<RoboteqDriver>());
-  rclcpp::shutdown();
-  return 0;
 }
 
+#include "pluginlib/class_list_macros.hpp"
+
+PLUGINLIB_EXPORT_CLASS(roboteq_control::RoboteqHardware, hardware_interface::ActuatorInterface)

@@ -3,7 +3,7 @@
     serial_port: "/dev/ttyUSB0"
     baudrate: 115200
     vel_topic: "vel"
-    rpm_scale: 25.0 # gear ratio and direction
+    gear_ratio: 25.0 # gear ratio and direction
     max_vel: 3500.0 # max rpm set in controller
 
     # For querying data from the motor controller

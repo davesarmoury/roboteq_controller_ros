@@ -14,14 +14,16 @@
   <depend>roboteq_interfaces</depend>
   <depend>serial</depend>
   <depend>geometry_msgs</depend>
+  
+  <depend>pluginlib</depend>
 
   <exec_depend>ros2launch</exec_depend>
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
 
-
-
   <export>
     <build_type>ament_cmake</build_type>
+    <ethercat_interface plugin="${prefix}/roboteq_control_plugins.xml" />
   </export>
+
 </package>
